@@ -1,27 +1,74 @@
 #!/bin/sh
-set -e
+set -eu
 
-LATEST=$(curl -sL "https://api.github.com/repos/XTLS/Xray-core/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)
+CONFIG="/etc/xray/config.json"
+FALLBACK_VERSION="v26.3.27"
+
+# Download a URL to a destination, failing loudly on HTTP or network errors.
+# curl's -f makes it return non-zero on HTTP >= 400 (otherwise an error page
+# is silently written to the destination), and -S surfaces the error message.
+download() {
+    url="$1"
+    dest="$2"
+    if ! curl -fSL --retry 3 --retry-delay 2 "$url" -o "$dest"; then
+        echo "[NikVPN] Error: failed to download ${url}" >&2
+        return 1
+    fi
+}
+
+LATEST=$(curl -fsSL "https://api.github.com/repos/XTLS/Xray-core/releases/latest" \
+    | grep '"tag_name"' | cut -d'"' -f4) || LATEST=""
 
 if [ -z "$LATEST" ]; then
-    LATEST="v26.3.27"
+    echo "[NikVPN] Warning: could not resolve latest Xray release, using ${FALLBACK_VERSION}" >&2
+    LATEST="$FALLBACK_VERSION"
 fi
 
 TMPDIR="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR"' EXIT
 
 echo "[NikVPN] Downloading Xray ${LATEST}..."
-curl -sL "https://github.com/XTLS/Xray-core/releases/download/${LATEST}/Xray-linux-64.zip" -o "${TMPDIR}/xray.zip"
-unzip -q "${TMPDIR}/xray.zip" -d "${TMPDIR}"
+download "https://github.com/XTLS/Xray-core/releases/download/${LATEST}/Xray-linux-64.zip" "${TMPDIR}/xray.zip"
+
+if ! unzip -q "${TMPDIR}/xray.zip" -d "${TMPDIR}"; then
+    echo "[NikVPN] Error: failed to extract Xray archive" >&2
+    exit 1
+fi
+
+if [ ! -f "${TMPDIR}/xray" ]; then
+    echo "[NikVPN] Error: xray binary missing from downloaded archive" >&2
+    exit 1
+fi
+
 install -m 755 "${TMPDIR}/xray" /usr/local/bin/xray
 
 echo "[NikVPN] Downloading GeoIP..."
-curl -sL "https://github.com/v2fly/geoip/releases/latest/download/geoip.dat" -o /usr/local/bin/geoip.dat
+download "https://github.com/v2fly/geoip/releases/latest/download/geoip.dat" /usr/local/bin/geoip.dat
 
 echo "[NikVPN] Downloading GeoSite..."
-curl -sL "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat" -o /usr/local/bin/geosite.dat
+download "https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat" /usr/local/bin/geosite.dat
+
+if [ ! -f "$CONFIG" ]; then
+    echo "[NikVPN] Error: config not found at ${CONFIG}" >&2
+    exit 1
+fi
 
 UUID=$(uuidgen)
-sed -i "s/PLACEHOLDER_UUID/${UUID}/" /etc/xray/config.json
+if [ -z "$UUID" ]; then
+    echo "[NikVPN] Error: failed to generate UUID" >&2
+    exit 1
+fi
 
-rm -rf "${TMPDIR}"
+if ! grep -q "PLACEHOLDER_UUID" "$CONFIG"; then
+    echo "[NikVPN] Error: PLACEHOLDER_UUID not found in ${CONFIG}" >&2
+    exit 1
+fi
+
+sed -i "s/PLACEHOLDER_UUID/${UUID}/" "$CONFIG"
+
+if grep -q "PLACEHOLDER_UUID" "$CONFIG"; then
+    echo "[NikVPN] Error: failed to substitute UUID in ${CONFIG}" >&2
+    exit 1
+fi
+
 echo "[NikVPN] Setup complete. Xray ${LATEST} installed with UUID: ${UUID}"
