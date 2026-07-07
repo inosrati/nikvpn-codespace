@@ -10,14 +10,24 @@ log() {
     echo "${NIKVPN_PREFIX} $*"
 }
 
+# warn MESSAGE... -> print a prefixed warning line to stderr.
+warn() {
+    echo "${NIKVPN_PREFIX} Warning: $*" >&2
+}
+
 # err MESSAGE... -> print a prefixed error line to stderr.
 err() {
     echo "${NIKVPN_PREFIX} Error: $*" >&2
 }
 
-# download URL DEST -> fetch URL to DEST following redirects, quietly.
+# download URL DEST -> fetch URL to DEST, failing loudly on HTTP/network errors.
+# -f makes curl return non-zero on HTTP >= 400 (otherwise an error page is
+# silently written to DEST), -S surfaces the error, and --retry handles flakes.
 download() {
-    curl -sL "$1" -o "$2"
+    if ! curl -fSL --retry 3 --retry-delay 2 "$1" -o "$2"; then
+        err "failed to download $1"
+        return 1
+    fi
 }
 
 # xray_uuid -> print the first client UUID found in the xray config.
