@@ -1,9 +1,15 @@
 #!/bin/bash
-CONFIG="/etc/xray/config.json"
-UUID=$(grep -o '"id": *"[^"]*"' "$CONFIG" | head -1 | grep -o '"[^"]*"$' | tr -d '"')
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ -f "$SCRIPT_DIR/common.sh" ]; then
+    . "$SCRIPT_DIR/common.sh"
+else
+    . /usr/local/bin/common.sh
+fi
+
+UUID=$(xray_uuid)
 
 if [ -z "$UUID" ]; then
-    echo "[NikVPN] Error: UUID not found in config."
+    err "UUID not found in config."
     exit 1
 fi
 

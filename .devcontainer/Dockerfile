@@ -7,9 +7,10 @@ RUN apt-get update \
     && mkdir -p /etc/xray
 
 COPY config.json /etc/xray/config.json
+COPY common.sh /usr/local/bin/common.sh
 COPY setup.sh /tmp/setup.sh
 
-RUN chmod +x /tmp/setup.sh && /tmp/setup.sh && rm /tmp/setup.sh
+RUN chmod +x /usr/local/bin/common.sh /tmp/setup.sh && /tmp/setup.sh && rm /tmp/setup.sh
 
 COPY show-link.sh /usr/local/bin/show-link.sh
 COPY start.sh /usr/local/bin/start.sh
